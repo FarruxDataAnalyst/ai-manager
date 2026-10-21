@@ -1,12 +1,34 @@
 import os
 import sqlite3
+import http.server
+import socketserver
+import threading
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
 import google.generativeai as genai
 
-# Tokenlarni to'g'ridan-to'g'ri yozmaymiz, serverdan o'qiymiz:
+# --- 1. Render Web Service uchun kichik veb-server (Port ochish uchun) ---
+PORT = int(os.environ.get("PORT", 10000))
+
+class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"AI Productivity Bot is alive and running 24/7!")
+
+def run_web_server():
+    with socketserver.TCPServer(("", PORT), HealthCheckHandler) as httpd:
+        print(f"Web server port {PORT} da ishga tushdi.")
+        httpd.serve_forever()
+
+# Veb-serverni alohida oqimda (thread) ishga tushiramiz
+threading.Thread(target=run_web_server, daemon=True).start()
+
+
+# --- 2. Asosiy Telegram Bot va AI Sozlamalari ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 MY_CHAT_ID = int(os.environ.get("MY_CHAT_ID", 0))
@@ -30,7 +52,7 @@ def init_db():
 
 init_db()
 
-# TSUE Dars Jadvali (Siz taqdim etgan rasm ma'lumotlari asosida)
+# TSUE Dars Jadvali
 TSUE_SCHEDULE = {
     0: "📅 Dushanba darslari:\n- 13:00 - 15:50: Xalqaro statistika | Xona: 16-Z-406/318",
     1: "📅 Seshanba darslari:\n- 13:00 - 15:50: Moliya asoslari | Xona: 16-Z-406/318",
@@ -80,7 +102,6 @@ def schedule_jobs(application):
         full_message = f"🔔 **{title}**\n\n{schedule_info}\n\n📌 **Faol Vazifalaringiz:**\n{task_list}"
         application.bot.send_message(chat_id=MY_CHAT_ID, text=full_message)
 
-    # Siz belgilagan qat'iy vaqtlar
     scheduler.add_job(lambda: send_notification("🌅 Xayrli tong! 07:00 - Uyg'onish vaqti."), 'cron', hour=7, minute=0)
     scheduler.add_job(lambda: send_notification("⏰ 08:45 - Ertalabki ishga tayyorgarlik!"), 'cron', hour=8, minute=45)
     scheduler.add_job(lambda: send_notification("⚠️ 11:50 - Ertalabki ish yakuni!"), 'cron', hour=11, minute=50)
